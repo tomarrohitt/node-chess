@@ -12,7 +12,7 @@ import { Keys } from "../../lib/keys";
 import { AuthError } from "../../lib/errors";
 import { auth } from "../../lib/auth";
 import { getSyncState } from "../../core/game/engine";
-import { WsMessageType } from "../../types/events";
+import { WsMessageType } from "../../types/types";
 import { handleLeaveQueue } from "../../core/matchmaking/queue";
 
 export interface AuthenticatedWebSocket extends WebSocket {
@@ -20,10 +20,6 @@ export interface AuthenticatedWebSocket extends WebSocket {
   isAlive: boolean;
 }
 
-/**
- * Extracts userId from the Better Auth session.
- * Throws AuthError if session is invalid.
- */
 async function extractUserId(req: IncomingMessage): Promise<string> {
   try {
     const session = await auth.api.getSession({

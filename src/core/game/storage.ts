@@ -1,7 +1,7 @@
 import { db } from "../../infrastructure/db/db";
 import { games, user } from "../../infrastructure/db/schema";
 import { redis } from "../../infrastructure/redis/redis-client";
-import { GameStatus } from "../../types/events";
+import { GameResult, GameStatus } from "../../types/types";
 import { Keys } from "../../lib/keys";
 import { eq, InferInsertModel, sql } from "drizzle-orm";
 import { calculateNewRatings } from "../../lib/elo";
@@ -62,16 +62,24 @@ export async function flushGameToDatabase(
 
   const newGame: InferInsertModel<typeof games> = {
     id: gameId,
-    whiteId: gameState.whiteId!,
-    blackId: gameState.blackId!,
-    winnerId: winnerId || null,
+    whiteId: gameState.whiteId,
+    blackId: gameState.blackId,
+    winnerId: winnerId ?? null,
     status,
-    timeControl: gameState.timeControl!,
+    result: winnerId
+      ? winnerId === whiteUser.id
+        ? GameResult.w
+        : GameResult.b
+      : GameResult.d,
+    timeControl: gameState.timeControl,
     pgn: finalPgn,
     finalFen: gameState.fen!,
     whiteTimeLeftMs: parseInt(gameState.whiteTimeLeftMs ?? "0", 10),
     blackTimeLeftMs: parseInt(gameState.blackTimeLeftMs ?? "0", 10),
-    moveTimes: JSON.parse(gameState.moveTimes || "[]"),
+    moveTimes: JSON.parse(gameState.moveTimes ?? "[]"),
+
+    whiteRating: whiteUser.rating,
+    blackRating: blackUser.rating,
 
     whiteDiff: diffA,
     blackDiff: diffB,

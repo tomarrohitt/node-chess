@@ -14,13 +14,21 @@ export async function getUserMatchHistory(userId: string, limit = 20) {
       timeControl: games.timeControl,
       createdAt: games.createdAt,
       winnerId: games.winnerId,
+      finalFen: games.finalFen,
+      result: games.result,
       white: {
+        id: whitePlayer.id,
         username: whitePlayer.username,
-        rating: whitePlayer.rating,
+        currentRating: whitePlayer.rating,
+        matchRating: games.whiteRating,
+        diff: games.whiteDiff,
       },
       black: {
+        id: blackPlayer.id,
         username: blackPlayer.username,
-        rating: blackPlayer.rating,
+        currentRating: blackPlayer.rating,
+        matchRating: games.blackRating,
+        diff: games.blackDiff,
       },
     })
     .from(games)
@@ -31,33 +39,47 @@ export async function getUserMatchHistory(userId: string, limit = 20) {
     .limit(limit);
 
   return results.map((game) => {
-    let outcome: "WON" | "LOST" | "DRAW" = "DRAW";
-
-    if (game.winnerId === userId) {
-      outcome = "WON";
-    } else if (game.winnerId && game.winnerId !== userId) {
-      outcome = "LOST";
-    }
-
     return {
       ...game,
-      outcome,
     };
   });
 }
-
 export async function getGameDetails(gameId: string) {
   const whitePlayer = alias(user, "whitePlayer");
   const blackPlayer = alias(user, "blackPlayer");
 
   const game = await db
     .select({
+      // 1. Core Match Metadata
       id: games.id,
       status: games.status,
+      result: games.result,
+      winnerId: games.winnerId,
+      timeControl: games.timeControl,
+      createdAt: games.createdAt,
+
+      // 2. Deep Chess Data (For Analysis Board)
       pgn: games.pgn,
       finalFen: games.finalFen,
-      white: { username: whitePlayer.username, rating: whitePlayer.rating },
-      black: { username: blackPlayer.username, rating: blackPlayer.rating },
+      moveTimes: games.moveTimes,
+      whiteTimeLeftMs: games.whiteTimeLeftMs,
+      blackTimeLeftMs: games.blackTimeLeftMs,
+
+      // 3. Player Snapshots
+      white: {
+        id: games.whiteId,
+        username: whitePlayer.username,
+        currentRating: whitePlayer.rating,
+        matchRating: games.whiteRating,
+        diff: games.whiteDiff,
+      },
+      black: {
+        id: games.blackId,
+        username: blackPlayer.username,
+        currentRating: blackPlayer.rating,
+        matchRating: games.blackRating,
+        diff: games.blackDiff,
+      },
     })
     .from(games)
     .leftJoin(whitePlayer, eq(games.whiteId, whitePlayer.id))

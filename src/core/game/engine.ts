@@ -1,11 +1,7 @@
 import { Chess } from "chess.js";
-import {
-  NotYourTurnError,
-  TimeExpiredError,
-  IllegalMoveError,
-} from "../../lib/errors";
+import { NotYourTurnError, IllegalMoveError } from "../../lib/errors";
 import { GameState, getIncrementMs, parseGameState } from "../../lib/state";
-import { GameStatus, WsMessageType } from "../../types/events";
+import { GameStatus, WsMessageType } from "../../types/types";
 import { Keys } from "../../lib/keys";
 import { redis } from "../../infrastructure/redis/redis-client";
 import { cancelTimer, startPlayerTimer } from "./timer";
@@ -29,29 +25,26 @@ function validateTurn(state: GameState, userId: string): boolean {
   return isWhiteTurn;
 }
 
-function calculateClocks(
-  state: GameState,
-  now: number,
-): { whiteTime: number; blackTime: number; elapsed: number } {
+function calculateClocks(state: GameState, now: number) {
   const elapsed = now - state.lastMoveTimestamp;
   const incMs = getIncrementMs(state.timeControl);
   const isWhiteTurn = state.turn === "w";
 
   let { whiteTimeLeftMs: whiteTime, blackTimeLeftMs: blackTime } = state;
+  let isTimeout = false;
 
   if (isWhiteTurn) {
     whiteTime -= elapsed;
-    if (whiteTime <= 0) throw new TimeExpiredError();
-    whiteTime += incMs;
+    if (whiteTime <= 0) isTimeout = true;
+    else whiteTime += incMs;
   } else {
     blackTime -= elapsed;
-    if (blackTime <= 0) throw new TimeExpiredError();
-    blackTime += incMs;
+    if (blackTime <= 0) isTimeout = true;
+    else blackTime += incMs;
   }
 
-  return { whiteTime, blackTime, elapsed };
+  return { whiteTime, blackTime, elapsed, isTimeout };
 }
-
 function applyMove(
   state: GameState,
   from: string,
@@ -80,26 +73,47 @@ function resolveOutcome(
   }
 
   if (chess.isCheckmate()) {
-    // If turn is now 'b', White delivered mate.
     const whiteWon = chess.turn() === "b";
+    const winnerId = whiteWon ? state.whiteId : state.blackId;
+
     return {
-      status: whiteWon ? GameStatus.WHITE_WON : GameStatus.BLACK_WON,
-      winnerId: whiteWon ? state.whiteId : state.blackId,
+      status: GameStatus.CHECKMATE,
+      winnerId,
       isOver: true,
       reason: "checkmate",
     };
   }
 
-  // Draw conditions
-  let reason = "draw";
-  if (chess.isStalemate()) reason = "stalemate";
-  if (chess.isThreefoldRepetition()) reason = "repetition";
-  if (chess.isInsufficientMaterial()) reason = "insufficient material";
-  if (chess.isDraw()) reason = "50-move rule";
+  if (chess.isStalemate()) {
+    return { status: GameStatus.STALEMATE, isOver: true, reason: "stalemate" };
+  }
 
-  return { status: GameStatus.DRAW, isOver: true, reason };
+  if (chess.isInsufficientMaterial()) {
+    return {
+      status: GameStatus.INSUFFICIENT_MATERIAL,
+      isOver: true,
+      reason: "insufficient material",
+    };
+  }
+
+  if (chess.isThreefoldRepetition()) {
+    return {
+      status: GameStatus.THREEFOLD_REPETITION,
+      isOver: true,
+      reason: "repetition",
+    };
+  }
+
+  if (chess.isDraw()) {
+    return {
+      status: GameStatus.FIFTY_MOVE_RULE,
+      isOver: true,
+      reason: "50-move rule",
+    };
+  }
+
+  return { status: GameStatus.DRAW, isOver: true, reason: "draw" };
 }
-
 export async function processMove(
   gameId: string,
   userId: string,
@@ -109,14 +123,39 @@ export async function processMove(
 ) {
   const gameKey = Keys.game(gameId);
   const raw = await redis.hgetall(gameKey);
+
+  if (!raw || Object.keys(raw).length === 0) {
+    throw new Error("Game not found or already ended.");
+  }
+
   const state = parseGameState(raw, gameId);
-
-  // 1. Validate turn and calculate time
   const isWhiteTurn = validateTurn(state, userId);
-  const now = Date.now();
-  const { whiteTime, blackTime, elapsed } = calculateClocks(state, now);
 
-  // 2. Apply move with clock comment
+  const now = Date.now();
+  const { whiteTime, blackTime, elapsed, isTimeout } = calculateClocks(
+    state,
+    now,
+  );
+
+  await cancelTimer(gameId);
+
+  if (isTimeout) {
+    const winnerId = isWhiteTurn ? state.blackId : state.whiteId;
+    const status = GameStatus.TIME_OUT;
+
+    await flushGameToDatabase(gameId, status, winnerId);
+
+    const payload = {
+      type: WsMessageType.GAME_OVER,
+      payload: { status, winnerId, reason: "timeout" },
+    };
+    await Promise.all([
+      sendToUser(state.whiteId, payload),
+      sendToUser(state.blackId, payload),
+    ]);
+    return { isGameOver: true };
+  }
+
   const playerRemainingTime = isWhiteTurn ? whiteTime : blackTime;
   const { chess, san } = applyMove(
     state,
@@ -130,43 +169,46 @@ export async function processMove(
   moveTimes.push(elapsed);
 
   const { status, winnerId, isOver, reason } = resolveOutcome(chess, state);
-  // MOVE LOG
   console.log(
-    `[Move] ${userId.slice(0, 5)}: ${from}->${to} | Clocks W: ${Math.floor(whiteTime / 1000)}s, B: ${Math.floor(blackTime / 1000)}s`,
+    `[Move] ${userId.slice(0, 5)}: ${san} | Clocks W: ${Math.floor(whiteTime / 1000)}s, B: ${Math.floor(blackTime / 1000)}s`,
   );
 
-  await cancelTimer(gameId);
-
-  await redis.hset(gameKey, {
-    fen: chess.fen(),
-    pgn: chess.pgn(),
-    turn: chess.turn(),
-    status,
-    whiteTimeLeftMs: whiteTime,
-    blackTimeLeftMs: blackTime,
-    lastMoveTimestamp: now,
-    moveTimes: JSON.stringify(moveTimes),
-  });
-
   if (isOver) {
-    console.log(
-      `[Engine] Game Over: ${reason} | Winner: ${winnerId ?? "None"}`,
-    );
+    await redis.hset(gameKey, {
+      fen: chess.fen(),
+      pgn: chess.pgn(),
+      status,
+      whiteTimeLeftMs: whiteTime,
+      blackTimeLeftMs: blackTime,
+      moveTimes: JSON.stringify(moveTimes),
+    });
+
     await flushGameToDatabase(gameId, status, winnerId);
 
     const gameOverPayload = {
       type: WsMessageType.GAME_OVER,
       payload: { status, winnerId, reason },
     };
-
     await Promise.all([
       sendToUser(state.whiteId, gameOverPayload),
       sendToUser(state.blackId, gameOverPayload),
     ]);
   } else {
+    await redis.hset(gameKey, {
+      fen: chess.fen(),
+      pgn: chess.pgn(),
+      turn: chess.turn(),
+      status,
+      whiteTimeLeftMs: whiteTime,
+      blackTimeLeftMs: blackTime,
+      lastMoveTimestamp: now,
+      moveTimes: JSON.stringify(moveTimes),
+    });
+
     const nextId = chess.turn() === "w" ? state.whiteId : state.blackId;
     const prevId = chess.turn() === "w" ? state.blackId : state.whiteId;
     const nextTime = chess.turn() === "w" ? whiteTime : blackTime;
+
     await startPlayerTimer(gameId, nextId, prevId, nextTime);
   }
 
@@ -177,15 +219,20 @@ export async function processMove(
     moveTimes,
     whiteId: state.whiteId,
     blackId: state.blackId,
+    whiteTimeLeftMs: whiteTime,
+    blackTimeLeftMs: blackTime,
   };
 }
 
 export async function handleAbort(gameId: string, userId: string) {
   const gameKey = Keys.game(gameId);
   const raw = await redis.hgetall(gameKey);
+
+  if (raw.whiteId !== userId && raw.blackId !== userId) return;
+
   const moveTimes = JSON.parse(raw.moveTimes || "[]");
 
-  if (moveTimes.length >= 2) {
+  if (moveTimes.length > 2) {
     throw new Error(
       "Game cannot be aborted after 2 moves. Use Resign instead.",
     );
@@ -208,7 +255,7 @@ export async function handleAbort(gameId: string, userId: string) {
 }
 
 export async function handleDrawOffer(gameId: string, userId: string) {
-  const drawKey = `draw_offer:${gameId}`;
+  const drawKey = Keys.drawOffer(gameId);
 
   const existingOfferBy = await redis.get(drawKey);
 
@@ -240,38 +287,37 @@ export async function handleDrawOffer(gameId: string, userId: string) {
   );
 }
 export async function handleDrawAccept(gameId: string, userId: string) {
-  const drawKey = `draw_offer:${gameId}`;
+  const drawKey = Keys.drawOffer(gameId);
   const offeringUserId = await redis.get(drawKey);
 
   if (!offeringUserId || offeringUserId === userId) {
     throw new Error("No valid draw offer found to accept.");
   }
+  const raw = await redis.hgetall(Keys.game(gameId));
+  if (!raw.whiteId || !raw.blackId) return;
 
-  const status = GameStatus.DRAW;
+  const status = GameStatus.AGREEMENT;
   await flushGameToDatabase(gameId, status, undefined);
+
   const payload = {
     type: WsMessageType.GAME_OVER,
     payload: { status, reason: "agreement" },
   };
-  const raw = await redis.hgetall(Keys.game(gameId));
 
   await Promise.all([
     sendToUser(raw.whiteId, payload),
     sendToUser(raw.blackId, payload),
     redis.del(drawKey),
   ]);
+
   console.log(`[Game] Draw Accepted | Agreement by both players`);
 }
 
 export async function handleDrawDecline(gameId: string, userId: string) {
-  const drawKey = `draw_offer:${gameId}`;
+  const drawKey = Keys.drawOffer(gameId);
   const offeringUserId = await redis.get(drawKey);
 
-  if (!offeringUserId) {
-    return;
-  }
-
-  if (offeringUserId === userId) return;
+  if (!offeringUserId || offeringUserId === userId) return;
 
   await redis.del(drawKey);
 
@@ -284,8 +330,38 @@ export async function handleDrawDecline(gameId: string, userId: string) {
 }
 
 export async function handleDrawExpire(gameId: string) {
-  const drawKey = `draw_offer:${gameId}`;
+  const drawKey = Keys.drawOffer(gameId);
   await redis.del(drawKey);
+}
+
+export async function handleResign(gameId: string, userId: string) {
+  const activeGameId = await redis.get(Keys.userActiveGame(userId));
+  if (activeGameId !== gameId) return;
+
+  const gameKey = Keys.game(gameId);
+  const gameState = await redis.hgetall(gameKey);
+  if (!gameState || Object.keys(gameState).length === 0) return;
+
+  await cancelTimer(gameId);
+  const isWhite = gameState.whiteId === userId;
+  const winnerId = isWhite ? gameState.blackId : gameState.whiteId;
+  const status = GameStatus.RESIGN;
+
+  console.log(
+    `[Game] Resigned | ID: ${gameId.slice(0, 8)} | User: ${userId.slice(0, 5)}... resigned.`,
+  );
+
+  await flushGameToDatabase(gameId, status, winnerId);
+
+  const resignPayload = {
+    type: WsMessageType.GAME_OVER,
+    payload: { status, winnerId, reason: "resignation" },
+  };
+
+  await Promise.all([
+    sendToUser(gameState.whiteId, resignPayload),
+    sendToUser(gameState.blackId, resignPayload),
+  ]);
 }
 
 export async function getSyncState(userId: string) {
@@ -314,7 +390,18 @@ export async function getSyncState(userId: string) {
 
   if (whiteTime <= 0 || blackTime <= 0) {
     const winnerId = whiteTime <= 0 ? gameState.blackId : gameState.whiteId;
-    await flushGameToDatabase(gameId, GameStatus.TIME_OUT, winnerId);
+    const status = GameStatus.TIME_OUT;
+    await flushGameToDatabase(gameId, status, winnerId);
+
+    const payload = {
+      type: WsMessageType.GAME_OVER,
+      payload: { status, winnerId, reason: "timeout" },
+    };
+    await Promise.all([
+      sendToUser(gameState.whiteId, payload),
+      sendToUser(gameState.blackId, payload),
+    ]);
+
     return null;
   }
 

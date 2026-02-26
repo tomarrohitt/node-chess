@@ -13,14 +13,21 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-export const gameStatusEnum = pgEnum("game_status", [
+export const gameStatusEnum = pgEnum("status", [
   "IN_PROGRESS",
-  "WHITE_WON",
-  "BLACK_WON",
+  "CHECKMATE",
+  "RESIGN",
   "DRAW",
+  "AGREEMENT",
+  "STALEMATE",
+  "INSUFFICIENT_MATERIAL",
+  "FIFTY_MOVE_RULE",
+  "THREEFOLD_REPETITION",
   "TIME_OUT",
   "ABANDONED",
 ]);
+
+export const resultEnum = pgEnum("result", ["d", "w", "b"]);
 
 export const friendStatusEnum = pgEnum("friend_status", [
   "PENDING",
@@ -129,20 +136,18 @@ export const games = pgTable(
   "games",
   {
     id: uuid("id").primaryKey().notNull(),
-
     whiteId: text("white_id")
       .references(() => user.id)
       .notNull(),
-
     blackId: text("black_id")
       .references(() => user.id)
       .notNull(),
-
     winnerId: text("winner_id").references(() => user.id),
 
     status: gameStatusEnum("status").notNull(),
-    timeControl: varchar("time_control", { length: 20 }).notNull(),
+    result: resultEnum("result").notNull().default("d"),
 
+    timeControl: varchar("time_control", { length: 20 }).notNull(),
     pgn: text("pgn").notNull(),
     moveTimes: jsonb("move_times").$type<number[]>().notNull().default([]),
     finalFen: varchar("fen", { length: 2048 }).notNull(),
@@ -150,6 +155,8 @@ export const games = pgTable(
     whiteTimeLeftMs: integer("white_time_left_ms").notNull(),
     blackTimeLeftMs: integer("black_time_left_ms").notNull(),
 
+    whiteRating: integer("white_rating").notNull().default(1000),
+    blackRating: integer("black_rating").notNull().default(1000),
     whiteDiff: integer("white_diff").notNull().default(0),
     blackDiff: integer("black_diff").notNull().default(0),
 
@@ -158,11 +165,8 @@ export const games = pgTable(
   },
   (table) => [
     index("games_white_id_idx").on(table.whiteId),
-
     index("games_black_id_idx").on(table.blackId),
-
     index("games_created_at_idx").on(table.createdAt),
-
     index("games_winner_id_idx").on(table.winnerId),
   ],
 );

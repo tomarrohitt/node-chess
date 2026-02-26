@@ -1,1 +1,0 @@
-ALTER TABLE "games" ADD COLUMN "move_times" jsonb DEFAULT '[]'::jsonb NOT NULL;

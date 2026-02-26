@@ -6,4 +6,5 @@ export const Keys = {
     `reconnect_${gameId}_${userId}`,
   session: (userId: string) => `session_${userId}`,
   userActiveGame: (userId: string) => `user_${userId}:activeGame`,
+  drawOffer: (userId: string) => `draw_offer_${userId}`,
 };

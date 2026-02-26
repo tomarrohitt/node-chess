@@ -2,7 +2,7 @@ import { v7 as uuidv7 } from "uuid";
 import { redis } from "../../infrastructure/redis/redis-client";
 import { sendToUser } from "../../infrastructure/ws/session-manager";
 import { startPlayerTimer } from "../game/timer";
-import { WsMessageType, GameStatus } from "../../types/events";
+import { WsMessageType, GameStatus } from "../../types/types";
 import { Keys } from "../../lib/keys";
 import { db } from "../../infrastructure/db/db";
 import { user } from "../../infrastructure/db/schema";
@@ -57,8 +57,6 @@ export async function handleJoinQueue(
       const stillInQueue = await redis.zscore(MATCHMAKING_QUEUE_KEY, userId);
 
       if (!stillInQueue) {
-        const activeGame = await redis.get(Keys.userActiveGame(userId));
-
         return;
       }
 

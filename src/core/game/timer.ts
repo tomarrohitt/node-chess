@@ -2,7 +2,7 @@ import { Queue, Worker } from "bullmq";
 import { redis } from "../../infrastructure/redis/redis-client";
 import { sendToUser } from "../../infrastructure/ws/session-manager";
 import { Keys } from "../../lib/keys";
-import { GameStatus, WsMessageType } from "../../types/events";
+import { GameStatus, WsMessageType } from "../../types/types";
 import { flushGameToDatabase } from "./storage";
 
 const TIMER_QUEUE_NAME = "game-timers";
@@ -151,12 +151,12 @@ export async function handlePlayerAbandonment(
   const pgn = gameState.pgn || "";
   const moveCount = pgn.trim().length;
 
-  if (moveCount === 0) {
-    await flushGameToDatabase(gameId, GameStatus.DRAW);
+  if (moveCount <= 2) {
+    await flushGameToDatabase(gameId, GameStatus.ABANDONED);
   } else {
     const isWhite = gameState.whiteId === disconnectedUserId;
     const winnerId = isWhite ? gameState.blackId : gameState.whiteId;
-    const finalStatus = isWhite ? GameStatus.BLACK_WON : GameStatus.WHITE_WON;
+    const finalStatus = GameStatus.TIME_OUT;
 
     await flushGameToDatabase(gameId, finalStatus, winnerId);
   }
