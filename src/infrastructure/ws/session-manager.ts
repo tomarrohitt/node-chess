@@ -27,7 +27,7 @@ subscriber.on("message", (_channel: string, raw: string) => {
     };
 
     const ws = localSessions.get(userId);
-    if (ws?.readyState === 1 /* OPEN */) {
+    if (ws?.readyState === 1) {
       ws.send(payload);
     }
   } catch (err) {

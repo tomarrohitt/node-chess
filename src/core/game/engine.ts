@@ -8,9 +8,6 @@ import { cancelTimer, startPlayerTimer } from "./timer";
 import { flushGameToDatabase } from "./storage";
 import { sendToUser } from "../../infrastructure/ws/session-manager";
 
-/**
- * Converts milliseconds to PGN clock format [H:MM:SS]
- */
 function formatPgnTime(ms: number): string {
   const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -214,6 +211,7 @@ export async function processMove(
 
   return {
     newFen: chess.fen(),
+    pgn: chess.pgn(),
     move: san,
     isGameOver: isOver,
     moveTimes,
@@ -409,6 +407,7 @@ export async function getSyncState(userId: string) {
     gameId,
     fen: gameState.fen,
     pgn: gameState.pgn,
+    playerColor: gameState.whiteId === userId ? "w" : "b",
     turn: gameState.turn,
     status: gameState.status,
     whiteId: gameState.whiteId,

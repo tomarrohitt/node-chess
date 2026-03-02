@@ -31,8 +31,6 @@ export const GameIdOnlySchema = z.object({
   gameId: z.uuid(),
 });
 
-// Kept distinct from GameIdOnlySchema so resignation-specific fields
-// (e.g. a reason or flag) can be added here later without touching shared schemas.
 export const ResignGameSchema = z.object({
   gameId: z.uuid(),
 });

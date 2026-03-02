@@ -139,19 +139,30 @@ async function createNewMatch(
     redis.set(Keys.userActiveGame(blackId), gameId),
   ]);
 
-  const gameStartedPayload = {
+  const whitePlayerPayload = {
     type: WsMessageType.GAME_STARTED,
     payload: {
       gameId,
       fen: initialFen,
       timeControl,
+      color: "white",
+      players: { white: whiteId, black: blackId },
+    },
+  };
+  const blackPlayerPayload = {
+    type: WsMessageType.GAME_STARTED,
+    payload: {
+      gameId,
+      fen: initialFen,
+      timeControl,
+      color: "black",
       players: { white: whiteId, black: blackId },
     },
   };
 
   await Promise.all([
-    sendToUser(whiteId, gameStartedPayload),
-    sendToUser(blackId, gameStartedPayload),
+    sendToUser(whiteId, whitePlayerPayload),
+    sendToUser(blackId, blackPlayerPayload),
   ]);
 
   await startPlayerTimer(gameId, whiteId, blackId, baseMs);

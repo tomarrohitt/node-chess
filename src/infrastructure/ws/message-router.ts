@@ -76,6 +76,7 @@ export async function routeMessage(
             payload: {
               gameId: payload.gameId,
               fen: result.newFen,
+              pgn: result.pgn,
               move: result.move,
               whiteTimeMs: result.whiteTimeLeftMs,
               blackTimeMs: result.blackTimeLeftMs,
