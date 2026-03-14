@@ -1,6 +1,8 @@
 import * as z from "zod";
 import { WsMessageType } from "./types";
 
+const EmptyPayload = z.undefined();
+
 export const JoinQueueSchema = z.object({
   timeControl: z.enum([
     "1+0",
@@ -31,12 +33,6 @@ export const GameIdOnlySchema = z.object({
   gameId: z.uuid(),
 });
 
-export const ResignGameSchema = z.object({
-  gameId: z.uuid(),
-});
-
-const EmptyPayload = z.object({}).optional().nullable();
-
 export const WsMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal(WsMessageType.JOIN_QUEUE),
@@ -48,7 +44,7 @@ export const WsMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal(WsMessageType.RESIGN_GAME),
-    payload: ResignGameSchema, // was incorrectly GameIdOnlySchema
+    payload: GameIdOnlySchema,
   }),
   z.object({
     type: z.literal(WsMessageType.GAME_ABORTED),

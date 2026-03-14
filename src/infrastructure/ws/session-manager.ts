@@ -12,10 +12,6 @@ const subscriber = redis.duplicate();
 subscriber.subscribe(`ws:instance:${INSTANCE_ID}`, (err) => {
   if (err) {
     console.error("[Sessions] Failed to subscribe to instance channel:", err);
-  } else {
-    console.log(
-      `[Sessions] Listening on pub/sub channel ws:instance:${INSTANCE_ID}`,
-    );
   }
 });
 

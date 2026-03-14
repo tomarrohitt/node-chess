@@ -272,7 +272,7 @@ export async function handleDrawOffer(gameId: string, userId: string) {
   await redis.set(drawKey, userId, "EX", 20);
 
   await sendToUser(opponentId, {
-    type: WsMessageType.DRAW_OFFERED,
+    type: WsMessageType.OFFER_DRAW,
     payload: {
       gameId,
       offeredBy: userId,
@@ -320,7 +320,7 @@ export async function handleDrawDecline(gameId: string, userId: string) {
   await redis.del(drawKey);
 
   await sendToUser(offeringUserId, {
-    type: "DRAW_DECLINED",
+    type: "DECLINE_DRAW",
     payload: { gameId, message: "Your opponent declined the draw offer." },
   });
 
@@ -412,6 +412,8 @@ export async function getSyncState(userId: string) {
     status: gameState.status,
     whiteId: gameState.whiteId,
     blackId: gameState.blackId,
+    whiteUser: gameState.whiteUser ? JSON.parse(gameState.whiteUser) : null,
+    blackUser: gameState.blackUser ? JSON.parse(gameState.blackUser) : null,
     timeControl: gameState.timeControl,
     whiteTimeLeftMs: whiteTime,
     blackTimeLeftMs: blackTime,

@@ -15,7 +15,6 @@ export enum WsMessageType {
   ACCEPT_DRAW = "ACCEPT_DRAW",
   DECLINE_DRAW = "DECLINE_DRAW",
   DRAW_OFFERED = "DRAW_OFFERED",
-  DRAW_DECLINED = "DRAW_DECLINED",
   GAME_ABORTED = "GAME_ABORTED",
   RESIGN_GAME = "RESIGN_GAME",
   SYNC_GAME = "SYNC_GAME",
@@ -41,4 +40,11 @@ export enum GameResult {
   d = "d",
   w = "w",
   b = "b",
+}
+
+export interface GameUser {
+  id: string;
+  username: string;
+  rating: number;
+  image: string | null;
 }

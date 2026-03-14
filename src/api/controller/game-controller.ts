@@ -5,12 +5,12 @@ import {
   getUserMatchHistory,
 } from "../repository/game-repository";
 import { toFetchHeaders } from "../../lib/utils/to-fetch-headers";
-import { ResignGameSchema } from "../../types/events";
+import { GameIdOnlySchema } from "../../types/events";
 
 export async function getUserMatchDetail(req: Request, res: Response) {
   const { gameId } = req.params;
 
-  const result = ResignGameSchema.safeParse({ gameId });
+  const result = GameIdOnlySchema.safeParse({ gameId });
 
   if (!result.success) {
     return res.status(400).json({ error: "Invalid gameId" });

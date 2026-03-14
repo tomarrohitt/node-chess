@@ -15,7 +15,6 @@ import {
   GameIdOnlySchema,
   JoinQueueSchema,
   MakeMoveSchema,
-  ResignGameSchema,
   WsMessageSchema,
 } from "../../types/events";
 
@@ -29,6 +28,7 @@ export async function routeMessage(
   rawMessage: string,
 ): Promise<void> {
   try {
+    console.log({ rawMessage });
     const parsedData = JSON.parse(rawMessage);
     const envelope = WsMessageSchema.parse(parsedData);
 
@@ -102,12 +102,6 @@ export async function routeMessage(
 
       case WsMessageType.LEAVE_QUEUE:
         await handleLeaveQueue(ws.userId);
-        ws.send(
-          JSON.stringify({
-            type: WsMessageType.QUEUE_LEFT,
-            payload: { status: "idle" },
-          }),
-        );
         break;
 
       case WsMessageType.SYNC_GAME: {
@@ -158,7 +152,7 @@ export async function routeMessage(
       }
 
       case WsMessageType.RESIGN_GAME: {
-        const { gameId } = ResignGameSchema.parse(envelope.payload);
+        const { gameId } = GameIdOnlySchema.parse(envelope.payload);
         await handleResign(gameId, ws.userId);
         break;
       }

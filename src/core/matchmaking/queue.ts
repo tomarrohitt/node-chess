@@ -2,7 +2,7 @@ import { v7 as uuidv7 } from "uuid";
 import { redis } from "../../infrastructure/redis/redis-client";
 import { sendToUser } from "../../infrastructure/ws/session-manager";
 import { startPlayerTimer } from "../game/timer";
-import { WsMessageType, GameStatus } from "../../types/types";
+import { WsMessageType, GameStatus, GameUser } from "../../types/types";
 import { Keys } from "../../lib/keys";
 import { db } from "../../infrastructure/db/db";
 import { user } from "../../infrastructure/db/schema";
@@ -47,7 +47,10 @@ export async function handleJoinQueue(
     const userData = await db.query.user.findFirst({
       where: eq(user.id, userId),
     });
-    const rating = userData?.rating ?? 1000;
+
+    if (!userData) return;
+
+    const rating = userData.rating;
 
     await redis.zadd(MATCHMAKING_QUEUE_KEY, rating, userId);
 
@@ -75,7 +78,25 @@ export async function handleJoinQueue(
       if (opponentId) {
         await redis.zrem(MATCHMAKING_QUEUE_KEY, userId);
 
-        await createNewMatch(userId, opponentId, timeControl);
+        const opponentData = await db.query.user.findFirst({
+          where: eq(user.id, opponentId),
+        });
+
+        await createNewMatch(
+          {
+            id: userId,
+            username: userData.username,
+            rating: userData.rating,
+            image: userData.image,
+          },
+          opponentData ? {
+            id: opponentData.id,
+            username: opponentData.username,
+            rating: opponentData.rating,
+            image: opponentData.image,
+          } : { id: opponentId, username: "Unknown", rating: 1200, image: null },
+          timeControl,
+        );
         return;
       }
 
@@ -96,16 +117,11 @@ export async function handleJoinQueue(
 
 export async function handleLeaveQueue(userId: string): Promise<void> {
   await redis.zrem(MATCHMAKING_QUEUE_KEY, userId);
-
-  await sendToUser(userId, {
-    type: WsMessageType.QUEUE_LEFT,
-    payload: { status: "idle" },
-  });
 }
 
 async function createNewMatch(
-  player1: string,
-  player2: string,
+  player1: GameUser,
+  player2: GameUser,
   timeControl: string,
 ): Promise<void> {
   const gameId = uuidv7();
@@ -114,12 +130,16 @@ async function createNewMatch(
   const now = Date.now();
 
   const isP1White = Math.random() > 0.5;
-  const whiteId = isP1White ? player1 : player2;
-  const blackId = isP1White ? player2 : player1;
+  const whiteUser = isP1White ? player1 : player2;
+  const blackUser = isP1White ? player2 : player1;
+  const whiteId = whiteUser.id;
+  const blackId = blackUser.id;
 
   await redis.hset(Keys.game(gameId), {
     whiteId,
     blackId,
+    whiteUser: JSON.stringify(whiteUser),
+    blackUser: JSON.stringify(blackUser),
     fen: initialFen,
     pgn: "",
     status: GameStatus.IN_PROGRESS,
@@ -139,30 +159,22 @@ async function createNewMatch(
     redis.set(Keys.userActiveGame(blackId), gameId),
   ]);
 
-  const whitePlayerPayload = {
-    type: WsMessageType.GAME_STARTED,
-    payload: {
-      gameId,
-      fen: initialFen,
-      timeControl,
-      color: "white",
-      players: { white: whiteId, black: blackId },
-    },
-  };
-  const blackPlayerPayload = {
-    type: WsMessageType.GAME_STARTED,
-    payload: {
-      gameId,
-      fen: initialFen,
-      timeControl,
-      color: "black",
-      players: { white: whiteId, black: blackId },
-    },
+  const payloadBase = {
+    gameId,
+    fen: initialFen,
+    timeControl,
+    players: { white: whiteUser, black: blackUser },
   };
 
   await Promise.all([
-    sendToUser(whiteId, whitePlayerPayload),
-    sendToUser(blackId, blackPlayerPayload),
+    sendToUser(whiteId, {
+      type: WsMessageType.GAME_STARTED,
+      payload: { ...payloadBase, color: "white" },
+    }),
+    sendToUser(blackId, {
+      type: WsMessageType.GAME_STARTED,
+      payload: { ...payloadBase, color: "black" },
+    }),
   ]);
 
   await startPlayerTimer(gameId, whiteId, blackId, baseMs);
